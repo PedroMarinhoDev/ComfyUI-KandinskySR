@@ -1,0 +1,375 @@
+{
+  "id": "500d6bed-f1e8-4a5c-9c75-199c300c5541",
+  "revision": 0,
+  "last_node_id": 6,
+  "last_link_id": 4,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "MarkdownNote",
+      "pos": [
+        20,
+        20
+      ],
+      "size": [
+        520,
+        420
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "## Kandinsky ImageSR 2.0: x2 / x4 image super-resolution\n\nOne step per 1024 px output tile (25% overlap, blended). Seedless.\n\n| file | folder |\n|---|---|\n| kandinsky_image_sr_2.0_bf16.safetensors (tools/convert_image_sr.py), or kandinsky_image_sr_2.0_int8_convrot.safetensors (tools/convert_image_sr_int8.py: 4.8 GB, faster) | models/diffusion_models/kandinsky-sr |\n| ae.safetensors (FLUX.1 VAE) | models/vae |\n\n- **scale**: 2x or 4x (one model for both).\n- **creativity**: 0-8, 4 is the release default; higher invents more detail.\n- **tile_batch_size** (advanced): tiles per transformer call.\n- **kernels**: fast (fused kernels, as close to the reference as exact) or exact (the reference's ops bit for bit).\n\nModel: [Kandinsky-ImageSR-2.0](https://huggingface.co/kandinskylab/Kandinsky-ImageSR-2.0) by Kandinsky Lab.\n\nDownload every file, already in this folder layout: [PedroMarinhoDev/Kandinsky-SR-ComfyUI](https://huggingface.co/PedroMarinhoDev/Kandinsky-SR-ComfyUI)."
+      ],
+      "widgets_values_named": {
+        "text": "## Kandinsky ImageSR 2.0: x2 / x4 image super-resolution\n\nOne step per 1024 px output tile (25% overlap, blended). Seedless.\n\n| file | folder |\n|---|---|\n| kandinsky_image_sr_2.0_bf16.safetensors (tools/convert_image_sr.py), or kandinsky_image_sr_2.0_int8_convrot.safetensors (tools/convert_image_sr_int8.py: 4.8 GB, faster) | models/diffusion_models/kandinsky-sr |\n| ae.safetensors (FLUX.1 VAE) | models/vae |\n\n- **scale**: 2x or 4x (one model for both).\n- **creativity**: 0-8, 4 is the release default; higher invents more detail.\n- **tile_batch_size** (advanced): tiles per transformer call.\n- **kernels**: fast (fused kernels, as close to the reference as exact) or exact (the reference's ops bit for bit).\n\nModel: [Kandinsky-ImageSR-2.0](https://huggingface.co/kandinskylab/Kandinsky-ImageSR-2.0) by Kandinsky Lab."
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 2,
+      "type": "KandinskyImageSRLoader",
+      "pos": [
+        570,
+        20
+      ],
+      "size": [
+        330,
+        58
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "COMBO",
+          "widget": {
+            "name": "model"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "KANDINSKY_IMAGE_SR",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KandinskyImageSRLoader"
+      },
+      "widgets_values": [
+        "kandinsky-sr/kandinsky_image_sr_2.0_bf16.safetensors"
+      ],
+      "widgets_values_named": {
+        "model": "kandinsky-sr/kandinsky_image_sr_2.0_bf16.safetensors"
+      }
+    },
+    {
+      "id": 3,
+      "type": "VAELoader",
+      "pos": [
+        570,
+        140
+      ],
+      "size": [
+        330,
+        58
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "vae_name",
+          "name": "vae_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "vae_name"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "VAE",
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            3
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "VAELoader"
+      },
+      "widgets_values": [
+        "ae.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "ae.safetensors"
+      }
+    },
+    {
+      "id": 4,
+      "type": "LoadImage",
+      "pos": [
+        570,
+        260
+      ],
+      "size": [
+        330,
+        314
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "COMBO",
+          "widget": {
+            "name": "image"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "choose file to upload",
+          "name": "upload",
+          "type": "IMAGEUPLOAD",
+          "widget": {
+            "name": "upload"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            4
+          ]
+        },
+        {
+          "localized_name": "MASK",
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        "image_c_640x424.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "image_c_640x424.png",
+        "upload": "image"
+      }
+    },
+    {
+      "id": 5,
+      "type": "KandinskyImageSRUpscale",
+      "pos": [
+        940,
+        20
+      ],
+      "size": [
+        300,
+        170
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "model",
+          "name": "model",
+          "type": "KANDINSKY_IMAGE_SR",
+          "link": 2
+        },
+        {
+          "localized_name": "vae",
+          "name": "vae",
+          "type": "VAE",
+          "link": 3
+        },
+        {
+          "localized_name": "image",
+          "name": "image",
+          "type": "IMAGE",
+          "link": 4
+        },
+        {
+          "localized_name": "scale",
+          "name": "scale",
+          "type": "COMBO",
+          "widget": {
+            "name": "scale"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "creativity",
+          "name": "creativity",
+          "type": "INT",
+          "widget": {
+            "name": "creativity"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "tile_batch_size",
+          "name": "tile_batch_size",
+          "type": "INT",
+          "widget": {
+            "name": "tile_batch_size"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "kernels",
+          "name": "kernels",
+          "type": "COMBO",
+          "widget": {
+            "name": "kernels"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            1
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KandinskyImageSRUpscale"
+      },
+      "widgets_values": [
+        "4x",
+        4,
+        1,
+        "fast"
+      ],
+      "widgets_values_named": {
+        "scale": "4x",
+        "creativity": 4,
+        "tile_batch_size": 1,
+        "kernels": "fast"
+      }
+    },
+    {
+      "id": 6,
+      "type": "SaveImage",
+      "pos": [
+        940,
+        300
+      ],
+      "size": [
+        560,
+        600
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 1
+        },
+        {
+          "localized_name": "filename_prefix",
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
+      "properties": {},
+      "widgets_values": [
+        "kandinsky_image_sr"
+      ],
+      "widgets_values_named": {
+        "filename_prefix": "kandinsky_image_sr"
+      }
+    }
+  ],
+  "links": [
+    [
+      1,
+      5,
+      0,
+      6,
+      0,
+      "IMAGE"
+    ],
+    [
+      2,
+      2,
+      0,
+      5,
+      0,
+      "KANDINSKY_IMAGE_SR"
+    ],
+    [
+      3,
+      3,
+      0,
+      5,
+      1,
+      "VAE"
+    ],
+    [
+      4,
+      4,
+      0,
+      5,
+      2,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.5260273972602739,
+      "offset": [
+        233.33333333333348,
+        285.0000000000001
+      ]
+    }
+  },
+  "version": 0.4
+}
