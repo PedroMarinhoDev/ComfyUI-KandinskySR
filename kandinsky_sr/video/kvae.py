@@ -356,6 +356,27 @@ class Decoder3D(nn.Module):
 
     def forward(self, z, cache, first):
         # float32 from here on, the reference's autocast region: convolutions round their inputs to bf16
+        if getattr(self, "_low_vram_offload", False):
+            dev = z.device
+            def _step(mod, *args):
+                mod.to(dev)
+                try:
+                    return mod(*args)
+                finally:
+                    mod.to("cpu")
+                    if dev.type == "cuda" and (torch.cuda.memory_reserved(dev) - torch.cuda.memory_allocated(dev)) > 256 * 1024 * 1024:
+                        torch.cuda.empty_cache()
+            h = _step(self.conv_in, z, cache)
+            h = _step(self.mid.block_1, h, cache, z, first)
+            h = _step(self.mid.block_2, h, cache, z, first)
+            for level in reversed(self.up):
+                for block in level.block:
+                    h = _step(block, h, cache, z, first)
+                if hasattr(level, "upsample"):
+                    h = _step(level.upsample, h, cache, first)
+            h = _step(self.norm_out, h, z, first, cache)
+            return _step(self.conv_out, h * torch.sigmoid(h), cache).float()
+
         h = self.conv_in(z, cache).float()
         h = self.mid.block_1(h, cache, z, first)
         h = self.mid.block_2(h, cache, z, first)
@@ -446,7 +467,20 @@ class KVAEModel(nn.Module):
             if (t - 1) % seg:
                 sizes.append((t - 1) % seg)
             sizes[0] += 1
-        cache = {}
+        if getattr(self.decoder, "_low_vram_offload", False):
+            dev = z.device
+            class _OffloadCache(dict):
+                def __setitem__(self, k, v):
+                    super().__setitem__(k, v.to("cpu") if torch.is_tensor(v) else v)
+                def __getitem__(self, k):
+                    v = super().__getitem__(k)
+                    return v.to(dev) if torch.is_tensor(v) else v
+                def get(self, k, default=None):
+                    v = super().get(k, default)
+                    return v.to(dev) if torch.is_tensor(v) else v
+            cache = _OffloadCache()
+        else:
+            cache = {}
         for i, chunk in enumerate(torch.split(z, sizes, dim=2)):
             yield self.decoder.forward_fast(chunk, cache, i == 0, pieces) if fast else self.decoder(chunk, cache, i == 0)
 

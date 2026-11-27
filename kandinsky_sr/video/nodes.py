@@ -48,6 +48,8 @@ class VideoSRModels:
         self.cards, self.upscaler_paths, self.upscalers = cards, upscaler_paths, {}
 
     def upscaler(self, scale):
+        if scale not in self.upscaler_paths:
+            raise ValueError(f"Kandinsky Video SR: upscaler x{scale} nao instalado/selecionado no Loader.")
         if scale not in self.upscalers:
             self.upscalers[scale] = lu_module.load_latent_upscaler(self.upscaler_paths[scale])
         return self.upscalers[scale]
@@ -73,8 +75,9 @@ class LoadKandinskyVideoSRModels(io.ComfyNode):
                                tooltip="models/vae: kandinsky_kvae_3d_2.0_t4s16 (tools/convert_kvae.py)."),
                 io.Combo.Input("upscaler_x2", options=x2, default=_default(x2, "_bf16.safetensors"),
                                tooltip="models/latent_upscale_models: the x2 latent upscaler, used by the 2x and 2.25x routes."),
-                io.Combo.Input("upscaler_x4", options=x4, default=_default(x4, "_bf16.safetensors"),
-                               tooltip="models/latent_upscale_models: the x4 latent upscaler, used by the 4x route."),
+                io.Combo.Input("upscaler_x4", options=x4 or ["none"], default=_default(x4, "_bf16.safetensors") or "none",
+                               optional=True,
+                               tooltip="models/latent_upscale_models: the x4 latent upscaler, used by the 4x route (optional for 2x-only setups)."),
                 io.Combo.Input("second_gpu", options=["none"] + _other_gpus(), default="none", advanced=True, optional=True,
                                tooltip="Run tiles on a second card too: it gets its own copy of the DiT and the KVAE (about "
                                        "6.5 GB more RAM) and takes the next tile whenever it is free, so a faster card does "
@@ -90,8 +93,10 @@ class LoadKandinskyVideoSRModels(io.ComfyNode):
         devices = [None] + ([torch.device(second_gpu.split(" ")[0])] if second_gpu != "none" else [])
         cards = [pipeline.Card(load_dit(path("diffusion_models", dit), device=device),
                                kvae_module.load_kvae(path("vae", kvae), device=device)) for device in devices]
-        return io.NodeOutput(VideoSRModels(cards, {2: path("latent_upscale_models", upscaler_x2),
-                                                    4: path("latent_upscale_models", upscaler_x4)}))
+        upscalers = {2: path("latent_upscale_models", upscaler_x2)}
+        if upscaler_x4 and upscaler_x4 != "none":
+            upscalers[4] = path("latent_upscale_models", upscaler_x4)
+        return io.NodeOutput(VideoSRModels(cards, upscalers))
 
 
 class KandinskyVideoSRUpscale(io.ComfyNode):
@@ -156,6 +161,22 @@ class KandinskyVideoSRUpscale(io.ComfyNode):
         device = models.cards[0].device
         if device.type == "cuda":
             torch.cuda.reset_peak_memory_stats(device)
+            total_gb = comfy.model_management.get_total_memory(device) / (1024 ** 3)
+            if total_gb <= 4.5:
+                if window_frames > 65:
+                    log.info("Kandinsky VSR Low-VRAM (%.1f GB): clamping window_frames %d -> 65", total_gb, window_frames)
+                    window_frames = 65
+                if stitch != "pixels":
+                    log.info("Kandinsky VSR Low-VRAM (%.1f GB): forcing stitch=pixels for minimal VRAM peak", total_gb)
+                    stitch = "pixels"
+            elif total_gb <= 6.5:
+                if window_frames > 121:
+                    log.info("Kandinsky VSR Low-VRAM (%.1f GB): clamping window_frames %d -> 121", total_gb, window_frames)
+                    window_frames = 121
+                if stitch != "pixels":
+                    log.info("Kandinsky VSR Low-VRAM (%.1f GB): forcing stitch=pixels to avoid decode_canvas OOM", total_gb)
+                    stitch = "pixels"
+            comfy.model_management.soft_empty_cache()
         try:
             return cls.run(models, source, scale, seed, overlap, encoder, kernels, stitch, window_frames, device, started)
         finally:

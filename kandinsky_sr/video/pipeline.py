@@ -257,11 +257,16 @@ def upscale(cards, upscaler, video, plan, seed, emit, timings=None, transformer_
     timings["encode"] = time.perf_counter() - t0
     th, tw = plan.tile[0] // STRIDE, plan.tile[1] // STRIDE
     raw = [latent[:, :, top // STRIDE:top // STRIDE + th, left // STRIDE:left // STRIDE + tw] for top, left in plan.tiles]
+    low_vram = device.type == "cuda" and comfy.model_management.get_total_memory(device) <= 6.5 * (1024 ** 3)
     # dynamic VRAM streams the next block's weights while one block runs (model_base.py sets the same flag)
     options = dict(transformer_options, prefetch_dynamic_vbars=main.dit.patcher.is_dynamic())
     tokens = (raw[0].shape[0], th * upscaler.scale, tw * upscaler.scale)
-    comfy.model_management.load_models_gpu([upscaler.patcher] + [card.dit.patcher for card in cards],
-                                           memory_required=upscaler.memory(raw[0].shape) + dit_memory(tokens))
+    if low_vram:
+        # Stage-split offload (4-6 GB VRAM): run latent_upscaler alone first, then offload before loading DiT
+        comfy.model_management.load_models_gpu([upscaler.patcher], memory_required=upscaler.memory(raw[0].shape))
+    else:
+        comfy.model_management.load_models_gpu([upscaler.patcher] + [card.dit.patcher for card in cards],
+                                               memory_required=upscaler.memory(raw[0].shape) + dit_memory(tokens))
     noise = device if noise_device is None else noise_device
     # every tile's start on the main card, from this thread, before the DiT pass: the upscaler is 0.2-0.3 s of a tile
     # and has one copy, and a worker must only touch its own card's models (dynamic VRAM stages a model's weights from
@@ -274,6 +279,10 @@ def upscale(cards, upscaler, video, plan, seed, emit, timings=None, transformer_
         starts.append(degraded_start(start, seed + index, sr["lq_noise_scale"], sr["lq_noise_type"], noise, first_frame))
     timings["upscale"] = time.perf_counter() - t0
     del latent, raw
+    if low_vram:
+        comfy.model_management.unload_all_models()
+        comfy.model_management.soft_empty_cache()
+        comfy.model_management.load_models_gpu([card.dit.patcher for card in cards], memory_required=dit_memory(tokens))
     denoised = [None] * len(starts)
 
     def denoise(card, index):
@@ -283,11 +292,15 @@ def upscale(cards, upscaler, video, plan, seed, emit, timings=None, transformer_
 
     run_tiles(cards, len(starts), denoise, timings, "dit")
     del starts
+    if low_vram:
+        comfy.model_management.unload_all_models()
+        comfy.model_management.soft_empty_cache()
 
     if stitch_mode == "latent":
         if main.kvae.can_decode_canvas(kernels):
             t0 = time.perf_counter()
-            canvas = blend_latents(denoised, plan, device)
+            blend_dev = torch.device("cpu") if low_vram else device
+            canvas = blend_latents(denoised, plan, blend_dev).to(device)
             comfy.model_management.load_models_gpu([main.kvae.patcher], memory_required=main.kvae.canvas_memory(canvas.shape, kernels))
             out_h, out_w = plan.out_size
             for frames in main.kvae.decode_canvas(canvas, kernels):
@@ -301,15 +314,24 @@ def upscale(cards, upscaler, video, plan, seed, emit, timings=None, transformer_
         log.warning("Kandinsky VSR: stitch=latent needs kernels=fast on a CUDA card; stitching the decoded tiles instead")
 
     shape = denoised[0].shape
-    comfy.model_management.load_models_gpu([card.kvae.patcher for card in cards],
-                                           memory_required=main.kvae.decode_memory(shape, kernels))
+    decode_kernels = "exact" if low_vram else kernels
+    if low_vram:
+        # Block-sequential offload (4-6 GB VRAM): keep KVAE on CPU and stream 1 decoder block at a time
+        comfy.model_management.unload_all_models()
+        for card in cards:
+            card.kvae.patcher.model.to("cpu")
+            card.kvae.patcher.model.decoder._low_vram_offload = True
+        comfy.model_management.soft_empty_cache()
+    else:
+        comfy.model_management.load_models_gpu([card.kvae.patcher for card in cards],
+                                               memory_required=main.kvae.decode_memory(shape, decode_kernels))
     h, w = plan.tile[0] * plan.tiling, plan.tile[1] * plan.tiling
     tile_bytes = 3 * plan.frames * h * w
-    on_card = len(plan.tiles) * tile_bytes < comfy.model_management.get_free_memory(device) - main.kvae.decode_memory(shape, kernels)
+    on_card = len(plan.tiles) * tile_bytes < comfy.model_management.get_free_memory(device) - main.kvae.decode_memory(shape, decode_kernels)
     decoded = [None] * len(denoised)
 
     def decode(card, index):
-        tile = card.kvae.decode_tile(denoised[index].to(card.device), kernels=kernels)
+        tile = card.kvae.decode_tile(denoised[index].to(card.device), kernels=decode_kernels)
         decoded[index] = tile.to(device) if on_card else tile.cpu()
         progress.update(1)
 
